@@ -1,2 +1,5 @@
-streamlit
 openai
+cohere
+streamlit
+requests
+beautifulsoup4
