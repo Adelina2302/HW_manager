@@ -117,7 +117,7 @@ def stream_mistral_response(model, messages, api_key):
         return ""
 
 def stream_cohere_response(model, messages, api_key):
-    # Используем правильные роли и обработку ошибок
+    
     import json
     url = "https://api.cohere.ai/v1/chat"
     headers = {
