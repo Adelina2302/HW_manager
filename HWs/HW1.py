@@ -75,3 +75,4 @@ def app():
             st.write_stream(stream)
         except Exception as e:
             st.error(f"Error while querying the model: {e}")
+app()
