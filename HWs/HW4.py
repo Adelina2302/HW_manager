@@ -42,7 +42,7 @@ def get_chromadb_collection():
 
 # ========== HTML chunking and vector DB creation ==========
 
-def fixed_size_chunking(text, chunk_size=300, overlap=50):
+def fixed_size_chunking(text, chunk_size=50, overlap=10):
     words = text.split()
     chunks = []
     start = 0
@@ -55,6 +55,18 @@ def fixed_size_chunking(text, chunk_size=300, overlap=50):
 
 def chunk_text(text):
     return fixed_size_chunking(text, chunk_size=500, overlap=100)
+# Why Fixed-Size Chunking is used (instead of Semantic or Adaptive Chunking):
+#
+# Initially, I chose Semantic Chunking (splitting by paragraphs) to preserve the logical structure of the documents.
+# However, on these websites, paragraphs are often just a single word or line (e.g., "Meeting Day:", "Tuesday"),
+# which means important related information (like meeting time and day) would be separated into different chunks,
+# and the model could not provide complete answers to user questions.
+#
+# Therefore, I switched to Fixed-Size Chunking: the simplest approach, which segments text into equally sized pieces
+# (based on word count), and uses a sliding window overlap for continuity of ideas. This ensures related fields
+# (such as day, time, and location) are kept together in the same chunk.
+#
+# Fixed-Size Chunking is also computationally cheaper than Adaptive or ML-Guided Chunking.
 
 def is_informative_chunk(chunk):
     ignore_phrases = [
@@ -261,9 +273,10 @@ if llm_vendor == "OpenAI":
     llm_model = st.sidebar.selectbox(
         "Select OpenAI model",
         [
+            "gpt-5-nano",
             "gpt-4o",
-            "gpt-4-turbo",
-            "gpt-5-nano"
+            "gpt-4-turbo"
+            
         ],
         key="openai_model",
         index=0
