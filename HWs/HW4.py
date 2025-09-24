@@ -41,27 +41,35 @@ def get_chromadb_collection():
     return collection
 
 # ========== HTML chunking and vector DB creation ==========
+
+def fixed_size_chunking(text, chunk_size=300, overlap=50):
+    words = text.split()
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = min(start + chunk_size, len(words))
+        chunk = ' '.join(words[start:end])
+        chunks.append(chunk)
+        start += chunk_size - overlap
+    return chunks
+
+def chunk_text(text):
+    return fixed_size_chunking(text, chunk_size=500, overlap=100)
+
+def is_informative_chunk(chunk):
+    ignore_phrases = [
+        "requires JavaScript",
+        "'Cuse Activities",
+        "No Response",
+        "About Contact Information"
+    ]
+    return not any(phrase in chunk for phrase in ignore_phrases)
+
 def extract_html_text(filepath):
     """Extracts visible text from HTML file."""
     with open(filepath, "r", encoding="utf-8") as f:
         soup = BeautifulSoup(f.read(), "html.parser")
     return soup.get_text(separator="\n")
-
-def chunk_text(text):
-    """
-    Chunking method: Semantic Chunking.
-
-    Explanation:
-    - Each chunk is a separate paragraph.
-    - This method is chosen because:
-        * Paragraphs typically represent distinct ideas, which improves retrieval relevance.
-        * It preserves the semantic and logical structure of the document.
-        * It avoids breaking sentences or meaning in the middle.
-        * Less expensive (compared to Adaptive Chunking).
-    - As a result, each document is turned into multiple mini-documents, one per paragraph.
-    """
-    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-    return paragraphs
 
 def create_vector_db_if_needed():
     """Creates the vector database from HTML docs if not already present."""
@@ -80,6 +88,7 @@ def create_vector_db_if_needed():
             text = extract_html_text(os.path.join(html_dir, fname))
             doc_chunks = chunk_text(text)
             for i, chunk in enumerate(doc_chunks):
+                if not is_informative_chunk(chunk): continue
                 chunk_id = f"{fname}_chunk{i+1}"
                 chunks.append((chunk_id, chunk))
         chroma_client = chromadb.PersistentClient(CHROMA_DB_PATH)
@@ -157,7 +166,6 @@ if uploaded_files:
     if added == 0:
         st.info("No new PDFs were added.")
 
-
 all_ids = collection.get()["ids"]
 if all_ids:
     with st.expander("Current documents in the vector database:"):
@@ -203,7 +211,7 @@ def trim_messages_last_n_pairs(messages, n_pairs=5):
                 break
     return list(reversed(tail))
 
-def fetch_relevant_docs(query, collection, openai_client, n=3):
+def fetch_relevant_docs(query, collection, openai_client, n=8):
     if not query or not collection:
         return []
     embedding_resp = openai_client.embeddings.create(input=query, model="text-embedding-3-small")
@@ -329,8 +337,8 @@ if prompt := st.chat_input("Ask me any question about the course..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # RAG: Retrieve top-3 relevant course docs for the user query
-    relevant_docs = fetch_relevant_docs(prompt, collection, openai_client, n=3)
+    # RAG: Retrieve top-8 relevant course docs for the user query
+    relevant_docs = fetch_relevant_docs(prompt, collection, openai_client, n=8)
 
     # Compose system prompt for LLM
     rag_prompt = build_rag_prompt(
