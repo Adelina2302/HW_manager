@@ -1,0 +1,16 @@
+Collecting pysqlite3
+  Downloading pysqlite3-0.5.4.tar.gz (40 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: pysqlite3
+  Building wheel for pysqlite3 (pyproject.toml): started
+  Building wheel for pysqlite3 (pyproject.toml): finished with status 'done'
+  Created wheel for pysqlite3: filename=pysqlite3-0.5.4-cp311-cp311-linux_x86_64.whl size=161401 sha256=ce959a93163e9275837e6f82741173e68b9ad0fa31f135ab3286f9c23057afe1
+  Stored in directory: /home/vscode/.cache/pip/wheels/83/05/4e/8fb9d7378ff72e4fd02b69df7a6052c34d33cea2a0231ca232
+Successfully built pysqlite3
+Installing collected packages: pysqlite3
+Successfully installed pysqlite3-0.5.4
