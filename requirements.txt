@@ -9,4 +9,3 @@ PyPDF2
 protobuf==3.20
 pypdf
 pysqlite3>=0.5.0
-sqlite3 >= 3.35.0.

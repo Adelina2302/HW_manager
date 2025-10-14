@@ -3,6 +3,7 @@ import streamlit as st
 pg = st.navigation(
     {
         "HWs": [
+            st.Page("HWs/HW7.py", title="HW7"),
             st.Page("HWs/HW5.py", title="HW5"),
             st.Page("HWs/HW4.py", title="HW4"), 
             st.Page("HWs/HW3.py", title="HW3"), 
