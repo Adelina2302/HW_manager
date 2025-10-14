@@ -37,7 +37,7 @@ def get_chromadb_collection():
     collection = chroma_client.get_or_create_collection("HW5Collection")
     return collection
 
-def fixed_size_chunking(text, chunk_size=500, overlap=100):
+def fixed_size_chunking(text, chunk_size=50, overlap=10):
     words = text.split()
     chunks = []
     start = 0
