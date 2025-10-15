@@ -32,7 +32,38 @@ if not OPENAI_KEY:
 st.set_page_config(page_title="HW5: Enhanced iSchool Chatbot (Function Calling)", layout="wide")
 st.title("HW5: Enhanced iSchool Chatbot (Function Calling + Context Memory)")
 
-CHROMA_DB_PATH = "./ChromaDB_for_hw5"
+# Prefer persistent storage when available; fall back to a writable path.
+def pick_chroma_path() -> str:
+    candidates: List[str] = []
+    # User-provided env var has highest priority
+    env_path = os.environ.get("CHROMA_DB_PATH", "").strip()
+    if env_path:
+        candidates.append(env_path)
+    # Streamlit Cloud persistent mount (if available)
+    candidates.append("/mount/data/ChromaDB_for_hw5")
+    # Ephemeral but writable on most platforms (incl. Streamlit Cloud)
+    candidates.append("/tmp/ChromaDB_for_hw5")
+    # Local/Codespaces workspace directory
+    candidates.append(os.path.join(os.getcwd(), ".chroma"))
+
+    for p in candidates:
+        try:
+            os.makedirs(p, exist_ok=True)
+            testfile = os.path.join(p, ".write_test")
+            with open(testfile, "w", encoding="utf-8") as f:
+                f.write("ok")
+            os.remove(testfile)
+            return p
+        except Exception:
+            continue
+
+    st.error(
+        "No writable directory available for ChromaDB. "
+        "Please set CHROMA_DB_PATH environment variable to a writable path."
+    )
+    st.stop()
+
+CHROMA_DB_PATH = pick_chroma_path()
 HTML_SOURCE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "su_orgs"))
 COLLECTION_NAME = "HW5Collection"
 
@@ -50,7 +81,7 @@ def get_chromadb_collection():
 # ==============================
 # UTILITIES
 # ==============================
-def fixed_size_chunking(text: str, chunk_size=50, overlap=10) -> List[str]:
+def fixed_size_chunking(text: str, chunk_size=500, overlap=100) -> List[str]:
     words = text.split()
     chunks = []
     start = 0
@@ -58,7 +89,9 @@ def fixed_size_chunking(text: str, chunk_size=50, overlap=10) -> List[str]:
         end = min(start + chunk_size, len(words))
         chunk = " ".join(words[start:end])
         chunks.append(chunk)
-        start += chunk_size - overlap
+        if end == len(words):
+            break
+        start += max(1, chunk_size - overlap)
     return chunks
 
 def extract_html_text(filepath: str) -> str:
@@ -85,65 +118,76 @@ def extract_pdf_text(file_bytes: bytes) -> str:
 # ==============================
 def create_vector_db_if_needed():
     """
-    If the DB directory does not exist, build it from HTML sources once.
+    Build initial index from HTML sources only if the collection is empty.
+    Avoids heavy get() operations.
     """
-    if not os.path.exists(CHROMA_DB_PATH):
-        if not os.path.exists(HTML_SOURCE_DIR):
-            st.warning(f"HTML directory not found: {HTML_SOURCE_DIR}")
-            os.makedirs(CHROMA_DB_PATH, exist_ok=True)
-            return
-        os.makedirs(CHROMA_DB_PATH, exist_ok=True)
-        st.info("Building initial vector DB from HTML sources...")
-        html_files = [f for f in os.listdir(HTML_SOURCE_DIR) if f.endswith(".html")]
-        chroma_client = chromadb.PersistentClient(CHROMA_DB_PATH)
-        collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
-        openai_client = get_openai_client()
+    collection = get_chromadb_collection()
+    try:
+        count = collection.count()
+    except Exception:
+        count = 0
 
-        for fname in html_files:
-            full_path = os.path.join(HTML_SOURCE_DIR, fname)
-            text = extract_html_text(full_path)
-            if not text.strip():
-                continue
-            doc_chunks = fixed_size_chunking(text, chunk_size=500, overlap=100)
-            for i, chunk_text_val in enumerate(doc_chunks):
-                chunk_id = f"{fname}_chunk{i+1}"
-                resp = openai_client.embeddings.create(
-                    input=chunk_text_val,
-                    model="text-embedding-3-small"
-                )
-                embedding = resp.data[0].embedding
-                collection.add(
-                    documents=[chunk_text_val],
-                    ids=[chunk_id],
-                    embeddings=[embedding],
-                    metadatas=[{
-                        "filename": fname,
-                        "chunk_index": i,
-                        "total_chunks": len(doc_chunks)
-                    }]
-                )
-        st.success("Initial HTML indexing complete.")
+    if count > 0:
+        return
+
+    if not os.path.exists(HTML_SOURCE_DIR):
+        st.warning(f"HTML directory not found: {HTML_SOURCE_DIR}")
+        return
+
+    st.info("Building initial vector DB from HTML sources...")
+    html_files = [f for f in os.listdir(HTML_SOURCE_DIR) if f.endswith(".html")]
+    openai_client = get_openai_client()
+
+    for fname in html_files:
+        full_path = os.path.join(HTML_SOURCE_DIR, fname)
+        text = extract_html_text(full_path)
+        if not text.strip():
+            continue
+        doc_chunks = fixed_size_chunking(text, chunk_size=500, overlap=100)
+        for i, chunk_text_val in enumerate(doc_chunks):
+            chunk_id = f"{fname}_chunk{i+1}"
+            resp = openai_client.embeddings.create(
+                input=chunk_text_val,
+                model="text-embedding-3-small"
+            )
+            embedding = resp.data[0].embedding
+            collection.add(
+                documents=[chunk_text_val],
+                ids=[chunk_id],
+                embeddings=[embedding],
+                metadatas=[{
+                    "filename": fname,
+                    "chunk_index": i,
+                    "total_chunks": len(doc_chunks),
+                    "source": "html"
+                }]
+            )
+    st.success("Initial HTML indexing complete.")
 
 create_vector_db_if_needed()
 
 # ==============================
-# ADD PDF UPLOAD
+# ADD PDF UPLOAD (chunked)
 # ==============================
 def add_pdf_to_collection(collection, openai_client, file_bytes, filename):
     text = extract_pdf_text(file_bytes)
     if not text.strip():
         return False
-    response = openai_client.embeddings.create(
-        input=text,
-        model="text-embedding-3-small"
-    )
-    embedding = response.data[0].embedding
-    collection.add(
-        documents=[text],
-        ids=[filename],
-        embeddings=[embedding],
-        metadatas=[{"filename": filename, "chunk_index": 0, "total_chunks": 1}]
-    )
+
+    chunks = fixed_size_chunking(text, chunk_size=500, overlap=100)
+    total = len(chunks)
+    for i, chunk in enumerate(chunks, start=1):
+        resp = openai_client.embeddings.create(
+            input=chunk,
+            model="text-embedding-3-small"
+        )
+        embedding = resp.data[0].embedding
+        collection.add(
+            documents=[chunk],
+            ids=[f"{filename}_chunk{i}"],
+            embeddings=[embedding],
+            metadatas=[{"filename": filename, "chunk_index": i-1, "total_chunks": total, "source": "pdf"}]
+        )
     return True
 
 # ==============================
@@ -423,8 +467,9 @@ if uploaded_files:
     st.info("Processing and embedding uploaded PDF files...")
     added = 0
     for up_file in uploaded_files:
-        ids_existing = collection.get(ids=[up_file.name])["ids"]
-        if up_file.name not in ids_existing:
+        # Check by metadata (filename) rather than a single id
+        existing = collection.get(where={"filename": up_file.name}, limit=1, include=[]).get("ids", [])
+        if not existing:
             if add_pdf_to_collection(collection, openai_client, up_file.read(), up_file.name):
                 st.success(f"Added: {up_file.name}")
                 added += 1
@@ -438,25 +483,34 @@ if uploaded_files:
 # ==============================
 # VECTOR DB LIST
 # ==============================
-all_ids = collection.get()["ids"]
-if all_ids:
+try:
+    total_count = collection.count()
+except Exception:
+    total_count = 0
+
+if total_count:
     with st.expander("Current documents in vector database"):
-        for doc_id in all_ids[:500]:
+        page = collection.get(limit=min(500, total_count), include=[])
+        all_ids = page.get("ids", [])
+        for doc_id in all_ids:
             st.write(f"- {doc_id}")
-        if len(all_ids) > 500:
-            st.write(f"... and {len(all_ids)-500} more")
+        if total_count > 500:
+            st.write(f"... and {total_count-500} more")
 else:
     st.warning("No documents in the vector database yet.")
 
 if st.button("🗑️ Clear the vector database"):
     try:
-        all_ids = collection.get()["ids"]
-        if all_ids:
-            collection.delete(ids=all_ids)
-            st.success("All files removed.")
-            st.session_state.last_retrieved_docs = []
-        else:
-            st.info("The collection is already empty.")
+        deleted = 0
+        while True:
+            batch = collection.get(limit=1000, include=[])
+            ids = batch.get("ids", [])
+            if not ids:
+                break
+            collection.delete(ids=ids)
+            deleted += len(ids)
+        st.success(f"All files removed. Deleted: {deleted}")
+        st.session_state.last_retrieved_docs = []
     except Exception as e:
         st.error(f"Error while deleting: {e}")
 
@@ -498,7 +552,6 @@ def stream_mistral_response(model, messages, api_key):
         if not resp.ok:
             st.error(f"Mistral HTTP error: {resp.status_code} {resp.text}")
             return ""
-        buffer = ""
         for line in resp.iter_lines(decode_unicode=True):
             if line and line.startswith("data: "):
                 payload = line.removeprefix("data: ").strip()
@@ -509,7 +562,6 @@ def stream_mistral_response(model, messages, api_key):
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     if "content" in delta:
                         text = delta["content"]
-                        buffer += text
                         yield text
                 except Exception:
                     continue
@@ -543,14 +595,12 @@ def stream_cohere_response(model, messages, api_key):
             if not resp.ok:
                 st.error(f"Cohere HTTP error: {resp.status_code} {resp.text}")
                 return ""
-            buffer = ""
             for line in resp.iter_lines(decode_unicode=True):
                 if line:
                     try:
                         chunk = json.loads(line)
                         if chunk.get("event_type") == "text-generation":
                             text = chunk.get("text", "")
-                            buffer += text
                             yield text
                         if chunk.get("event_type") == "stream-end":
                             break
@@ -624,4 +674,3 @@ if user_prompt:
                         fname = meta.get("filename", "unknown")
                         st.markdown(f"**Doc {i}: {fname} (id={doc_id})**")
                         st.write(doc_text[:800] + ("..." if len(doc_text) > 800 else ""))
-
