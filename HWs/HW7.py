@@ -1,5 +1,9 @@
 
-import sqlite3  # noqa: F401
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
+import sqlite3  
 import os
 import json
 import time
@@ -9,7 +13,7 @@ import requests
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
-# Third-party
+
 import streamlit as st
 import pandas as pd
 import chromadb
@@ -70,8 +74,8 @@ LEGAL_CATEGORY_WEIGHTS = {
 OPENAI_TOOL_MODELS = {"gpt-4o", "gpt-4o-mini"}  # supports Chat Completions tools
 OPENAI_RESPONSES_MODELS = {"gpt-5-nano"}       # prefer Responses API (no tools)
 
-st.set_page_config(page_title="HW7 Auto News RAG (Redesigned)", layout="wide")
-st.title("📰 HW7 Auto News RAG — OpenAI Tools / Mistral No-Tools (Redesigned)")
+st.set_page_config(page_title="HW7 Auto News RAG", layout="wide")
+st.title("📰 HW7 Auto News RAG")
 
 OPENAI_KEY = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 MISTRAL_KEY = st.secrets.get("MISTRAL_API_KEY", os.environ.get("MISTRAL_API_KEY", ""))
